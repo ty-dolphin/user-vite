@@ -1,236 +1,178 @@
 <!--
- * @Description: 赛事列表页用于展示滚球、今日、早盘、串关、冠军等赛事
+ * @Description:设置弹出框内 滑动组件
 -->
 <template>
-  <!--赛事列表-->
-  <div class="match-list-page"
-    :class="{
-      guanjun: is_kemp,
-      jingzu: is_jinzu,
-      esport: is_esports,
-      animation: animation,
-      detail_match_list: is_hot || is_detail,
-      zaopan: [3, 11, 28, 3000].includes(menu_type) && !is_hot,
-      level_four_menu: menu_type == 28 && [1001, 1002, 1004, 1011, 1010, 1009].includes(menu_lv2.mi),
-    }" >
-    <!--缝隙 不通层级 遮罩 存在渲染偏差， 边界 双线 或者 侵蚀问题-->
-    <!-- <div class="gap" v-if="on_match && menu_type != 3000" :class="{ zaopan: [4, 11, 28, 3000].includes(menu_type) }" /> -->
-    <!-- 跳转到其他场馆的banner图 和猜你喜欢-->
-    <tiaozhuan-panel v-if="calc_show"></tiaozhuan-panel>
-    <!-- 列表骨架屏 -->
-    <!-- <SList v-if="show_skeleton_screen" :loading_body="true" /> -->
-    <!-- 赛事列表 -->
-    <match-container />
-    <!-- 回到顶部按钮组件 -->
-    <scroll-top v-show="!get_is_show_menu && list_scroll_top > 0" ref="scroll_top" :list_scroll_top="list_scroll_top" @back-top="back_top" />
+  <!-- :src="`${LOCAL_PROJECT_FILE_PREFIX}/image/list/league-collapse-icon-black.svg`" alt=""> -->
+  <div class="select-league" :style="bounced_high">
+    <div class="sl-header">
+      <div class="sl-btn" @click="closed">取消</div>
+      <div class="sl-title">选择联赛</div>
+      <div class="sl-btn" @click="finishHandle">完成</div>
+    </div>
+    <div class="sl-search">
+      <div class="sl-input-content">
+        <div class="sl-icon-left">
+          <img
+            class="search-icon"
+            :src="compute_local_project_file_path('/image/list/league-search-icon.svg')"
+            alt=""
+          />
+        </div>
+        <input
+          class="sl-input"
+          v-model="search_val"
+          placeholder="请输入联赛名"
+          type="text"
+          maxlength="15"
+        />
+        <div class="sl-icon-right">
+          <img
+            v-if="search_val.length > 0"
+            class="clear-icon"
+            :src="compute_local_project_file_path('/image/list/league-close-icon.svg')"
+            alt=""
+          />
+        </div>
+      </div>
+    </div>
+    <!-- <div class="sl-filter-content"> -->
+    <match-filter ref="matchRef" :search_val="search_val"></match-filter>
+    <!-- </div> -->
   </div>
 </template>
 <script setup>
-import { computed, onUnmounted, onMounted, watch, onDeactivated, ref } from "vue";
-import { useRoute } from "vue-router";
-import { useMittOn, useMittEmit, MITT_TYPES } from  "src/core/mitt/index.js"
-import lodash from "lodash";
-import store from "src/store-redux/index.js";
-import tiaozhuanPanel from "src/base-h5/components/match-list/components/tiaozhuan-panel.vue";    //  跳转banner图和猜你喜欢
-import matchContainer from "src/base-h5/components/match-list/index.vue";
-// import SList from "src/base-h5/components/skeleton/skeleton-list.vue"   // 赛事列表骨架屏
-import scrollTop from "src/base-h5/components/common/record-scroll/scroll-top.vue";
-import BaseData from 'src/core/base-data/base-data.js'
-import MatchMeta from "src/core/match-list-h5/match-class/match-meta.js";
-import MatchPage from "src/core/match-list-h5/match-class/match-page.js";
-import { MenuData, score_switch_handle,  MatchDataWarehouse_H5_List_Common as MatchDataBaseH5} from "src/output/index.js";
-import {pre_load_video  } from "src/core/pre-load/module/pre-load-video.js";
-import MatchListCard from "src/core/match-list-h5/match-card/match-list-card-class";
-import * as ws_message_listener from "src/core/utils/common/module/ws-message.js";;  
-import { menu_type, menu_lv2, is_hot, is_detail, is_zaopan, is_jinzu, is_esports, is_kemp } from 'src/base-h5/mixin/menu.js'
-import { standard_edition } from 'src/base-h5/mixin/userctr.js'
-// import matchListCardFold from 'src/core/match-list-h5/match-card/match-list-card-fold.js'
-import  GATAG  from "src/core/http/gtag-tag.js";
-const route = useRoute();
-const store_state = store.getState();
-// const websocket_store = use_websocket_store()
-
-const match_main = ref(null);
-const scroll_top = ref(null);
-const match_list_page = ref(null);
-const emitters = ref({});
-const animation = ref(false);
-const match_is_empty = ref(false);
-// 赛事操作工具类
-const matchCtr = ref(MatchDataBaseH5);
-// 赛事列表接口请求中提示
-const is_data_requesting = ref(true);
-//正在切换新版与标准版
-const newer_standard_changing = ref(false);
-//投注栏弹层显示非0否则0
-const local_bet_status = ref(0);
-// 赛事列表滑动高度
-const list_scroll_top = ref(0);
-const timer_super6 = ref(null);
-const subscription_timer1 = ref(null);
-
-// 显示收藏弹窗
-const show_favorite_list = ref(store_state.show_favorite_list);
-
-// 右侧设置菜单显示时 , 不显示骨架屏
-const get_is_show_menu = ref(store_state.get_is_show_menu);
-const get_preload_animation_url = ref(store_state.get_preload_animation_url);
-
-let message_fun = null
-let handler_func = null
-
-onMounted(() => {
-
-  BaseData.is_emit && MatchMeta.set_origin_match_data()
-
-  // 接口请求防抖
-  handler_func = lodash.debounce(({ cmd, data }) => {
-    MatchMeta.handle_ws_directive({ cmd, data })
-  }, 1000)
-
-  // 增加监听接受返回的监听函数
-  message_fun = ws_message_listener.ws_add_message_listener((cmd, data) => {
-    if (['C101', 'C102', 'C104', 'C901'].includes(cmd)) {
-      MatchMeta.handle_remove_match(data)
-    } else {
-      handler_func({ cmd, data })
-    }
-  })
-
-  // 初始化赛事列表操作工具类
-  if (standard_edition.value == 2) {
-    newer_standard_changing.value = true;
-  } else {
-    MatchListCard.sliding_can_trigger_process_distance = 500;
-  }
-  // 记录埋点，进入列表页
-  GATAG.gtag_view_send("H5_match", "/match");
-  // 详情精选赛事页需清空map折叠状态
-  store.dispatch({ type: 'topMenuReducer/set_collapse_map_match', payload: {} })
-  // 事件初始化
-  event_init();
+import { i18n_t, compute_css_obj } from "src/output/index.js";
+import { useRouter, useRoute } from "vue-router";
+import matchFilter from "src/base-h5/components/match-filter/index.vue";
+import { reactive, toRefs, ref } from "vue";
+import { useMittEmit, MITT_TYPES } from "src/output/index.js";
+import {LOCAL_PROJECT_FILE_PREFIX,compute_local_project_file_path} from "src/output/index.js";
+import { UserCtr } from "src/output/index.js";
+defineOptions({
+  name: "selectLeague" // 设置组件名称
 });
 
-// 页脚子菜单
-watch(() => MenuData.footer_sub_menu_id, () => {
-  const prev_footer_sub_menu_id = lodash.get(MenuData, 'prev_footer_sub_menu_id')
-  if ( (prev_footer_sub_menu_id != curr && curr == 114) || (prev_footer_sub_menu_id != curr && prev_footer_sub_menu_id == 114) ) {
-    matchCtr.value.list.forEach((item) => {
-      score_switch_handle(item);
-    });
-  }
-  MenuData.prev_footer_sub_menu_id = curr;
-}
-);
+const router = useRouter();
+//数据
 
-const calc_show = computed(() => {
-  return  menu_type.value == 1 && !show_favorite_list && !match_is_empty.value && route.name != "home" && is_detail.value
-});
+//选中的值
+const search_val = ref('')
+//选中的值
+const select_list = ref([])
+//组件数据
+let matchRef = ref(null);
 
-const on_match = computed(() => {
-  return window.location.hash.includes("match");
-});
-
-// 显示骨架屏
-const show_skeleton_screen = computed(() => {
-  return is_data_requesting.value && !(is_hot.value || is_detail.value);
-});
-
-// 回到顶部
-const back_top = () => {
-  match_list_page.value?.scrollTo(0, 0);
+let rem_1 = (window.innerWidth * 100) / 375;
+const bounced_high = {
+  height: window.innerHeight - rem_1 + 50 + "px !important"
 };
-/**
- * @description:  事件初始化
- */
-const event_init = () => {
-  // 详情页的视频预加载
-  pre_load_video.load_video_resources(store_state.get_uid, "is_details_page");
-  // 不让浏览器记住上次的滚动位置
-  if ("scrollRestoration" in History) {
-    history.scrollRestoration = "manual";
-  }
-  // 移除相关事件监听
-  off_listeners();
-  // 绑定相关事件监听
-  on_listeners();
-  // 图标出错与mid映射，初始化为空
-  store.dispatch({ type: 'matchReducer/set_img_error_map_mid', payload: {} })
-  // window.vue.scroll_list_wrapper_by = use_router_scroll().scroll_list_wrapper_by
-  // 去除参数
-  if (!location.search.includes("keep_url")) {
-    history.replaceState(null, "", `${location.pathname}${location.hash}`);
-  }
-  // set_hide_skeleton_screen(true)
-};
+const emit = defineEmits(["search_fn","closedHandle"]);
+
 
 /**
- * @description 元数据请求回来 初始化赛事加载
+ * @description: 筛选完成
+ * @param {Array} select_list 选中的数据
  */
-const init_match_callback = () => {
-  if (route.name !== 'matchList') return
-  MatchMeta.set_origin_match_data()
-}
-
+const finishHandle = () => {
+  select_list.value = matchRef.value.list.filter(v=>v.select)
+  // 派发首页设置菜单展开事件
+  useMittEmit(MITT_TYPES.EMIT_CHANGE_SETTING_SHOW, {
+    open: true
+  });
+  // 触发联赛选择完成事件
+  useMittEmit(MITT_TYPES.EMIT_SELECT_LEAGUE_COMPLETE, {
+    open: true,
+    select_list: select_list.value,
+  });
+  //设置选中数据
+  UserCtr.set_league_select_list(select_list)
+  emit("closedHandle");
+};
 /**
- * @description 综合菜单切换页面卡顿效果
+ * @description: 取消
+ * @param 
  */
-const handle_menu_change = () => {
-  animation.value = true
-  let timer = setTimeout(() => {
-    animation.value = false
-    clearTimeout(timer)
-    timer = null
-  }, 500)
-}
-
-
-const destroy_handle = () => {
-  // websocket_store.sendSocketCloseCmd();
-  matchCtr.value.init();
-  store.dispatch({ type: 'topMenuReducer/set_last_time_sub_menu_type', payload: '' })
-  off_listeners();
+const closed = () => {
+  emit("closedHandle");
+    useMittEmit(MITT_TYPES.EMIT_CHANGE_SETTING_SHOW, {
+    open: true,
+  });
 };
-
-const unsubscribe = store.subscribe(() => {
-  update_state();
-});
-const update_state = () => {
-  const new_state = store.getState();
-  show_favorite_list.value = new_state.show_favorite_list;
-  get_is_show_menu.value = new_state.get_is_show_menu;
-  get_preload_animation_url.value = new_state.get_preload_animation_url;
-};
-
-// 绑定相关事件监听
-const on_listeners = () => {
-  emitters.value = {
-    emitter_1: useMittOn(MITT_TYPES.EMIT_MENU_CHANGE_FOOTER_CMD, lodash.debounce((v) => {
-      MatchMeta.footer_event(v)
-    }, 500)).off,
-    emitter_2: useMittOn(MITT_TYPES.EMIT_MAIN_MENU_CHANGE, (v)=>MatchPage.main_menu_change(v)).off,
-    emitter_7: useMittOn(MITT_TYPES.EMIT_MATCH_LIST_SCROLLING, (v)=> MatchListCard.match_list_scroll_handle(v)).off,
-    // emitter_11: useMittOn(MITT_TYPES.EMIT_UPDATE_CURRENT_LIST_METADATA, init_match_callback).off,
-    emitter_12: useMittOn(MITT_TYPES.EMIT_MENU_ANIMATION, handle_menu_change).off,
-  };
-};
-// 移除相关事件监听
-const off_listeners = () => {
-  Object.values(emitters.value).map((x) => x());
-};
-
-onDeactivated(() => {
-  destroy_handle();
-  MatchDataBaseH5.clear()
-});
-
-onUnmounted(() => {
-  destroy_handle();
-  unsubscribe();
-  MatchDataBaseH5.clear()
-});
-
+defineProps({});
 </script>
 <style scoped lang="scss">
-  @import "./index.scss";
-</style>
+// 组件样式
+.select-league {
+  width: 100%;
+  max-width: unset !important;
+  /*  兼容性问题,高度的调整影响到安卓手机的软键盘弹出 */
+  max-height: calc(var(--vh, 1vh) * 100 - 80px) !important;
+  border-radius: 0.16rem 0.16rem 0 0;
+  position: absolute;
+  bottom: 0;
+  background: var(--q-gb-bg-c-15) !important;
+  backdrop-filter: blur(5px);
+  .sl-header {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.18rem 0.2rem;
+    align-items: baseline;
+    .sl-title {
+      font-size: 0.18rem;
+    }
+    .sl-btn {
+      font-size: 0.16rem;
+      color: var(--q-gb-t-c-1);
+      color: #74C4FF;
+    }
+  }
+  .sl-search {
+    display: flex;
+    padding: 0 0.2rem;
+    .sl-input-content {
+      height: 0.4rem;
+      width: 100%;
+      background: var(--q-gb-t-c-6);
+      border-radius: 0.4rem;
+      padding: 0 0.42rem;
+      display: flex;
+      align-items: center;
+      position: relative;
+      .sl-icon-left {
+        position: absolute;
+        left: 0.16rem;
+        transform: translateY(0.02rem);
+        .search-icon {
+          width: 0.18rem;
+          height: 0.18rem;
+          -background: var(--q-gb-t-c-1);
+        }
+      }
+      .sl-icon-right {
+        position: absolute;
+        right: 0.16rem;
+        .clear-icon {
+          width: 0.12rem;
+          height: 0.12rem;
+          -background: var(--q-gb-t-c-1);
+        }
+      }
+      .sl-input {
+        background: var(--q-gb-t-c-6);
+        outline: none;
+        border: none;
+        width: 100%;
+        font-size: 0.14rem;
+        &::placeholder{
+          color: #C9CDDB;
+        }
+      }
+    }
+  }
+
+  .sl-filter-content {
+    //position: relative;
+    //transform: translateY(1.03rem);
+  }
+}
+</style>/index.jssrc/output
