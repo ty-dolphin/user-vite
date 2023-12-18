@@ -23,17 +23,9 @@
           <img :class="['expand_item', {collapsed: collapsed}]" :src="expand_item" alt="">
         </template>
       </div>
-      <!-- 已开赛标题  -->
-      <!-- <div class="match-status-fixed flex items-center" v-else>
-        <img src='../../../../../base-h5/assets/match-list/icon_started.svg' />
-        <span class="din-regular">
-          {{ i18n_t('list.match_start') }}&nbsp;&nbsp;
-          <span v-show="in_progress_total">(0)</span>
-        </span>
-      </div> -->
       <!--体育类别 -- 标题  menuType 1:滚球 2:即将开赛 3:今日 4:早盘 11:串关 -->
       <div v-if="show_sport_title" @click="handle_ball_seed_fold" :class="['sport-title match-indent', { home_hot_page: is_hot, is_gunqiu: [1].includes(+menu_type), first: i == 0, }]">
-        <span class="score-inner-span"> {{ match_of_list.csna }}{{ '(' + menu_lv2.ct + ')' }} </span>
+        <span class="score-inner-span"> {{ match_of_list.csna || get_current_manu_name() }} ({{ get_match_count }}) </span>
       </div>
 
       <!-- 最核心的div模块     标题 + 倒计时 + 比分 + 赔率盘口模块 -->
@@ -86,15 +78,17 @@
                   <!-- 动画状态大于-1时，显示动画按钮 i18n_t('match_info.animation')是国际化取值 -->
 
                   <!-- icon_click_animationUrl media_button_handle -->
-                  <img v-if="match.mvs > -1" class="" src='/src/base-h5/assets/match-list/ico_animate_nor.png'
+                  <img :class="[!(match.mvs > -1) && 'iconGrayFillStyle']"
+                  :src="compute_local_project_file_path('image/list/ico_animate_nor.png')"
                     @click="media_button_handle_by_type(ButtonTypes.animationUrl)" />
                   <!-- 视频状态大于1时，显示视频按钮 i18n_t('match_info.video')是国际化取值 -->
-                  <img v-if="match.mms > 1" class="live-icon-btn" src='/src/base-h5/assets/match-list/ico_live_nor.png'
+                  <img :class="['live-icon-btn', !(match.mms > 1) && 'iconGrayFillStyle']"
+                  :src="compute_local_project_file_path('image/list/ico_live_nor.png')"
                     @click="media_button_handle_by_type(ButtonTypes.muUrl)" />
                   <!--icon_click_muUrl  -->
                   <!--  match["lvs"] == 2，显示直播按钮 i18n_t('match_info.lvs')是国际化取值 -->
-                  <img v-if="match.lvs == 2" class="" src='/src/base-h5/assets/match-list/ico_liveshow_nor.png'
-                    @click="media_button_handle_by_type(ButtonTypes.lvs)" />
+                  <!-- <img :class="[match.lvs !== 2 && 'iconGrayFillStyle']" :src="compute_local_project_file_path('image/list/ico_liveshow_nor.png')"
+                    @click="media_button_handle_by_type(ButtonTypes.lvs)" /> -->
                   <!-- icon_click_lvs -->
                 </template>
               </div>
@@ -152,7 +146,7 @@
             <div class="name">
               <div class='left'>
                 <span>
-                  {{ match.man }}
+                  {{ match.mhn }}
                 </span>
                 <!--发球方绿点-->
                 <span class="serving-party" :class="{ 'simple': standard_edition == 1 }"
@@ -160,13 +154,13 @@
                 </span>
 
                 <!-- 1-足球 2-篮球 3-棒球 4-冰球 5-网球 6-美式足球 7-斯诺克 8-乒乓球 9-排球  10-羽毛球 -->
-                <image-cache-load v-if="match?.mhlu?.length && !([5, 10, 7, 8].includes(Number(match.csid)))"
+                <image-cache-load v-if="match?.mhlu?.length && !([5, 10, 7].includes(Number(match.csid)))"
                   :csid="+match.csid" :path="match.mhlu" type="home"></image-cache-load>
                 <!-- <img v-if="match?.mhlu?.length" class="logo" v-img="([match.mhlu[0], match.frmhn[0], match.csid])" /> -->
               </div>
               <span class="vs">VS</span>
               <div class='right'>
-                <image-cache-load v-if="match?.malu?.length && !([5, 10, 7, 8].includes(Number(match.csid)))"
+                <image-cache-load v-if="match?.malu?.length && !([5, 10, 7].includes(Number(match.csid)))"
                   :csid="+match.csid" :path="match.malu" type="home"></image-cache-load>
 
                 <!-- <img v-if="match?.malu?.length" class="logo" v-img="([match.malu[0], match.frman[0], match.csid])" /> -->
@@ -175,7 +169,7 @@
                   v-show="set_serving_side(match, 'away')">
                 </span>
                 <span>
-                  {{ match.mhn }}
+                  {{ match.man }}
                 </span>
 
               </div>
@@ -227,7 +221,7 @@ import default_mixin from '../../mixins/default.mixin.js'
 import { compute_value_by_cur_odd_type } from "src/output/index.js";
 import lodash from 'lodash';
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
-import { MITT_TYPES, LOCAL_PROJECT_FILE_PREFIX, useMittOn, compute_css_obj } from "src/output/index.js"
+import { MITT_TYPES, LOCAL_PROJECT_FILE_PREFIX,compute_local_project_file_path, useMittOn, compute_css_obj } from "src/output/index.js"
 import { set_bet_obj_config } from "src/core/bet/class/bet-box-submit.js"
 import VirtualList from 'src/core/match-list-h5/match-class/virtual-list'
 import { get_match_status } from 'src/core/utils/common/index'
@@ -361,6 +355,7 @@ export default {
       format_odds_value,
       curMatchOdds,
       isCollectMenuTab,
+      compute_local_project_file_path,
       lang, theme, i18n_t, compute_img_url, format_time_zone, GlobalAccessConfig, footer_menu_id, LOCAL_PROJECT_FILE_PREFIX,
       is_hot, menu_type, menu_lv2, is_detail, is_esports, is_results, standard_edition, footer_menu_id,
       in_progress, not_begin, animation_icon, video_icon, icon_date, expand_item, show_sport_title, compute_css_obj,
@@ -374,6 +369,13 @@ export default {
   
    
 <style scoped lang="scss">
+.iconGrayFillStyle {
+  filter: grayscale(100%);
+  -webkit-filter: grayscale(100%);
+  pointer-events: none;
+}
+
+
 /* ********赛事容器相关********** -S*/
 
 .counting-down-up-container {
@@ -884,6 +886,7 @@ export default {
             .odd-column-item {
               background: var(--q-gb-bg-c-15);
               margin-left: .04rem;
+              border-radius: 4px;
             }
             .odd-title {
               font-size: .1rem;
@@ -915,8 +918,12 @@ export default {
         justify-content: flex-end;
         align-items: center;
       }
-      .score-se-inner2{
-        display: flex;
+      :deep(.score-se-inner){
+        max-width: 100%;
+        .score-se-inner2{
+          display: flex;
+          margin-left: -5px;
+        }
       }
     }
 
@@ -983,9 +990,13 @@ export default {
         }
       }
     }
+    :deep(.start-counting-down) {
+      .counting-down-start{
+        font-size: 0.12rem;
+      }
+    }
   }
 }
 
 /* ********赛事容器相关********** -E*/
 </style>
- src/output/index.js
