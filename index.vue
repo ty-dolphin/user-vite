@@ -1,332 +1,243 @@
 <!--
- * @Description:设置弹出框内 滑动组件
-    style中已经计算出最大高度，直接内容撑开即可
+ * @Description: 赛事列表页用于展示滚球、今日、早盘、串关、冠军等赛事
 -->
 <template>
-  <div class="setting-filter">
-    <div class="setting-top setting-item">
-      <div class="title">
-    <!-- 联赛筛选 -->
-         {{ i18n_t('footer_menu.league_filter') }}
-         <!-- 已选 -->
-        <span v-if="league_select_count > 0">( {{ i18n_t('footer_menu.selected') }}{{league_select_count}}) </span>
-        <!-- 全部 -->
-        <span v-else> {{ i18n_t('highlights.type.all') }}</span>
-      </div>
-      <div>
-      </div>
-      <div v-if="!is_vr" class="more row items-center justify-between"  @click="searchClick">
-       <img
-            class="league-icon"
-            :src="`${LOCAL_PROJECT_FILE_PREFIX}/image/list/league_icon.svg`"
-            alt=""
-          />
-        <p>
-        <!-- 更多 -->
-          {{ i18n_t('footer_menu.more') }}
-        <img  
-          :src="`${LOCAL_PROJECT_FILE_PREFIX}/image/svg/left_icon.svg`"
-          srcset="">
-        </p>
-      
-      </div>
-    </div>
-    <div class="setting-list">
-      <div class="setting-item border" v-for="item in setting_list" :key="item.name">
-        <div class="title">{{ item.name }}</div>
-        <div class="more">
-          <Switch
-            :value="item.switchValue"
-            :leftVal="item.leftVal"
-            :rightVal="item.rightVal"
-            @change_value="switch_handle(item)"
-            :class="{disabled:item.mark ==='Handicap'&&MenuData.current_lv_1_menu_i== 400 }"
-          />
-        </div>
-      </div>
-      <div class="setting-item border" @click="jumpHandle">
-      <!-- 盘口教程 -->
-        <div class="title">{{ i18n_t('app_h5.cathectic.handicap_tutorial') }}</div>
-        <div class="more">
-        <img  
-        :src="`${LOCAL_PROJECT_FILE_PREFIX}/image/svg/left_icon.svg`"
-         srcset="">
-        </div>
-      </div>
-      <!-- <div class="setting-item" @click="jump_webpage"> -->
-      <!-- 前往旧版 -->
-        <!-- <div class="title"> {{ i18n_t('app_h5.filter.go_old_version') }}</div> -->
-        <!-- 前往网页版 -->
-        <!-- <div class="goto-website"> {{ i18n_t('app_h5.filter.go_web_version') }}</div>
-      </div> -->
-    </div>
-    <div class="closed-btn" @click="closedHandle">
-    <!-- 关闭 -->
-      <span> {{ i18n_t('analysis_football_matches.shut_down') }}</span>
-    </div>
+  <!--赛事列表-->
+  <div class="match-list-page"
+    :class="{
+      guanjun: is_kemp,
+      jingzu: is_jinzu,
+      esport: is_esports,
+      animation: animation,
+      detail_match_list: is_hot || is_detail,
+      zaopan: [3, 11, 28, 3000].includes(menu_type) && !is_hot,
+      level_four_menu: menu_type == 28 && [1001, 1002, 1004, 1011, 1010, 1009].includes(menu_lv2.mi),
+    }" >
+    <!--缝隙 不通层级 遮罩 存在渲染偏差， 边界 双线 或者 侵蚀问题-->
+    <!-- <div class="gap" v-if="on_match && menu_type != 3000" :class="{ zaopan: [4, 11, 28, 3000].includes(menu_type) }" /> -->
+    <!-- 跳转到其他场馆的banner图 和猜你喜欢-->
+    <tiaozhuan-panel v-if="calc_show"></tiaozhuan-panel>
+    <!-- 列表骨架屏 -->
+    <!-- <SList v-if="show_skeleton_screen" :loading_body="true" /> -->
+    <!-- 赛事列表 -->
+    <match-container />
+    <!-- 回到顶部按钮组件 -->
+    <scroll-top v-show="!get_is_show_menu && list_scroll_top > 0" ref="scroll_top" :list_scroll_top="list_scroll_top" @back-top="back_top" />
   </div>
 </template>
 <script setup>
-import { useRouter, useRoute } from "vue-router";
-import {  useMittEmit, MITT_TYPES } from "src/core/mitt/index.js";
-import {SessionStorage,UserCtr,LOCAL_PROJECT_FILE_PREFIX, project_name } from "src/output/index.js";
-import {ref,computed,nextTick} from "vue";
-import Switch from "./components/switch.vue";
-import { LocalStorage } from "src/core/utils/common/module/web-storage.js";
-import { default_theme_key } from "src/core/theme/";
-import MatchMeta from 'src/core/match-list-h5/match-class/match-meta';
-import { i18n_t } from "src/boot/i18n.js";
-import VirtualList from 'src/core/match-list-h5/match-class/virtual-list'
-import { is_vr } from 'src/base-h5/mixin/menu.js'
-import MenuData from "src/core/menu-app-h5/menu-data-class.js";
+import { computed, onUnmounted, onMounted, watch, onDeactivated, ref } from "vue";
+import { useRoute } from "vue-router";
+import { useMittOn, useMittEmit, MITT_TYPES } from  "src/core/mitt/index.js"
+import lodash from "lodash";
+import store from "src/store-redux/index.js";
+import tiaozhuanPanel from "src/base-h5/components/match-list/components/tiaozhuan-panel.vue";    //  跳转banner图和猜你喜欢
+import matchContainer from "src/base-h5/components/match-list/index.vue";
+// import SList from "src/base-h5/components/skeleton/skeleton-list.vue"   // 赛事列表骨架屏
+import scrollTop from "src/base-h5/components/common/record-scroll/scroll-top.vue";
+import BaseData from 'src/core/base-data/base-data.js'
+import MatchMeta from "src/core/match-list-h5/match-class/match-meta.js";
+import MatchPage from "src/core/match-list-h5/match-class/match-page.js";
+import { MenuData, score_switch_handle,  MatchDataWarehouse_H5_List_Common as MatchDataBaseH5} from "src/output/index.js";
+import {pre_load_video  } from "src/core/pre-load/module/pre-load-video.js";
+import MatchListCard from "src/core/match-list-h5/match-card/match-list-card-class";
+import * as ws_message_listener from "src/core/utils/common/module/ws-message.js";;  
+import { menu_type, menu_lv2, is_hot, is_detail, is_zaopan, is_jinzu, is_esports, is_kemp, is_collect } from 'src/base-h5/mixin/menu.js'
+import { standard_edition } from 'src/base-h5/mixin/userctr.js'
+// import matchListCardFold from 'src/core/match-list-h5/match-card/match-list-card-fold.js'
+import  GATAG  from "src/core/http/gtag-tag.js";
+const route = useRoute();
+const store_state = store.getState();
+// const websocket_store = use_websocket_store()
 
-defineOptions({
-  name: "settingFilter" // 设置组件名称
+const match_main = ref(null);
+const scroll_top = ref(null);
+const match_list_page = ref(null);
+const emitters = ref({});
+const animation = ref(false);
+const match_is_empty = ref(false);
+// 赛事操作工具类
+const matchCtr = ref(MatchDataBaseH5);
+// 赛事列表接口请求中提示
+const is_data_requesting = ref(true);
+//正在切换新版与标准版
+const newer_standard_changing = ref(false);
+//投注栏弹层显示非0否则0
+const local_bet_status = ref(0);
+// 赛事列表滑动高度
+const list_scroll_top = ref(0);
+const timer_super6 = ref(null);
+const subscription_timer1 = ref(null);
+
+// 显示收藏弹窗
+const show_favorite_list = ref(store_state.show_favorite_list);
+
+// 右侧设置菜单显示时 , 不显示骨架屏
+const get_is_show_menu = ref(store_state.get_is_show_menu);
+const get_preload_animation_url = ref(store_state.get_preload_animation_url);
+
+let message_fun = null
+let handler_func = null
+
+onMounted(() => {
+
+  if (BaseData.is_emit) {
+    if (is_esports.value) {
+      MatchMeta.get_esports_match()
+    } else if (!is_kemp.value && !is_collect){
+      MatchMeta.set_origin_match_data()
+    }
+  }
+
+  // 接口请求防抖
+  handler_func = lodash.debounce(({ cmd, data }) => {
+    MatchMeta.handle_ws_directive({ cmd, data })
+  }, 1000)
+
+  // 增加监听接受返回的监听函数
+  message_fun = ws_message_listener.addWsMessageListener((cmd, data) => {
+    if (['C101', 'C102', 'C104', 'C901'].includes(cmd)) {
+      MatchMeta.handle_remove_match(data)
+    } else {
+      handler_func({ cmd, data })
+    }
+  })
+
+  // 初始化赛事列表操作工具类
+  if (standard_edition.value == 2) {
+    newer_standard_changing.value = true;
+  } else {
+    MatchListCard.sliding_can_trigger_process_distance = 500;
+  }
+  // 记录埋点，进入列表页
+  GATAG.gtag_view_send("H5_match", "/match");
+  // 详情精选赛事页需清空map折叠状态
+  store.dispatch({ type: 'topMenuReducer/set_collapse_map_match', payload: {} })
+  // 事件初始化
+  event_init();
 });
 
-const router = useRouter();
-
-/**
- * @description 跳转至盘口教程
- * @param 
- * @return 
- */
-const jumpHandle = () => {
-  router.push({ name: "handicapTutorial" }); // 
-  closedHandle();
-};
-/**
- * @description 跳转网页版
- * @param 
- * @return 
- */
-const jump_webpage = () => {
-  console.log('跳转网页版')
-};
-
-defineProps({});
-
-const emit = defineEmits(["closedHandle"]);
-
-const setting_list = ref([
-  {
-    name: i18n_t('footer_menu.bet_model'),//"投注模式"
-    leftVal: i18n_t('footer_menu.new_v'),//"新手版"
-    rightVal: i18n_t('footer_menu.pro_v'),//"专业版
-    switchValue: UserCtr.standard_edition === 2 ? "rightVal" : "leftVal",
-    mark: "version"
-  },
-  {
-    name: i18n_t('footer_menu.sort_title'),//"排序规则"
-    leftVal: i18n_t('footer_menu.hot'),//"热门
-    rightVal: i18n_t('footer_menu.time'),//"时间
-    switchValue: UserCtr.sort_type === 2 ? "rightVal" : "leftVal",
-    mark: "sort"
-  },
-  {
-    name: i18n_t('footer_menu.odds_set'),//"盘口设置
-    leftVal: i18n_t('odds.EU'),//"欧洲盘
-    rightVal: i18n_t('odds.HK'),//"香港盘
-    switchValue: UserCtr.odds.cur_odds === "HK" ? "rightVal" : "leftVal",
-    mark: "Handicap"
-  },
-  // { name: '字号大小', leftVal: '默认', rightVal: '放大',mark:'size' },
-  {
-    name: i18n_t('footer_menu.theme'),//"主题风格
-    leftVal: i18n_t('footer_menu.daytime'),//"日间
-    rightVal: i18n_t('footer_menu.night'),//"夜间
-    switchValue: UserCtr.theme === "theme-1" ? "rightVal" : "leftVal",
-    mark: "theme"
-  },
-  {
-    name: i18n_t('footer_menu.daily_activities'),//"每日活动
-    leftVal: i18n_t('footer_menu.turn_on'),//"开启
-    rightVal: i18n_t('common.close'),//"关闭
-    switchValue: UserCtr.daily_activities ? "leftVal" : "rightVal",
-    mark: "activity"
-  }
-]);
-
-const closedHandle = () => {
-  emit("closedHandle");
-    useMittEmit(MITT_TYPES.EMIT_MENU_CHANGE_FOOTER_CMD, {
-    text: "footer-refresh"
-  })
-};
-/**
- * 选中的联赛数量
- */
-const league_select_count = computed(() =>{
-  return UserCtr.league_select_list.length
-})
-/**
- * 打开联赛筛选框
- */
-const searchClick = () => {
-    // console.log(`搜索足球`)
-    // 派发首页设置菜单展开事件
-    emit("closedHandle");
-    useMittEmit(MITT_TYPES.EMIT_CHANGE_SEARCH_FILTER_SHOW, {
-      open: true,
+// 页脚子菜单
+watch(() => MenuData.footer_sub_menu_id, () => {
+  const prev_footer_sub_menu_id = lodash.get(MenuData, 'prev_footer_sub_menu_id')
+  if ( (prev_footer_sub_menu_id != curr && curr == 114) || (prev_footer_sub_menu_id != curr && prev_footer_sub_menu_id == 114) ) {
+    matchCtr.value.list.forEach((item) => {
+      score_switch_handle(item);
     });
-
-}
-/**
- *@description 设置菜单改变
- *@return {Undefined} undefined
- */
-const switch_handle = item => {
-  item.switchValue = item.switchValue === "rightVal" ? "leftVal" : "rightVal";
-  const typeMap = {
-    version: version_handle,
-    sort: sort_handle,
-    Handicap: Handicap_handle,
-    size: size_handle,
-    theme: theme_handle,
-    activity: activity_handle
-  };
-  typeMap[item.mark] && typeMap[item.mark](item);
-};
-/**
- *@description 处理版本改变
- *@return {Undefined} undefined
- */
-const version_handle = item => {
-  // 用户版本 移动端有简版 1 和标准版 2
-  const status = item.switchValue === "rightVal" ? 2 : 1;
-  UserCtr.set_standard_edition(status);
-  useMittEmit(MITT_TYPES.EMIT_GOT_TO_TOP);
-  // 新手版
-  if (status === 1) {
-    if (project_name === 'app-h5') {
-      MatchMeta.set_origin_match_data()
-      // nextTick(() => {
-      //   useMittEmit(MITT_TYPES.EMIT_HANDLE_START_OBSERVER);
-      // })
-    }
-  } else {
-    VirtualList.set_is_show_ball(true)
-    MatchMeta.compute_page_render_list({ scrollTop: 0, type: 2, is_scroll: false })
   }
+  MenuData.prev_footer_sub_menu_id = curr;
+}
+);
+
+const calc_show = computed(() => {
+  return  menu_type.value == 1 && !show_favorite_list && !match_is_empty.value && route.name != "home" && is_detail.value
+});
+
+const on_match = computed(() => {
+  return window.location.hash.includes("match");
+});
+
+// 显示骨架屏
+const show_skeleton_screen = computed(() => {
+  return is_data_requesting.value && !(is_hot.value || is_detail.value);
+});
+
+// 回到顶部
+const back_top = () => {
+  match_list_page.value?.scrollTo(0, 0);
 };
 /**
- *@description 处理排序规则
- *@return {Undefined} undefined
+ * @description:  事件初始化
  */
-const sort_handle = item => {
-  const status = item.switchValue === "rightVal" ? 2 : 1;
-  UserCtr.set_sort_type(status);
+const event_init = () => {
+  // 详情页的视频预加载
+  pre_load_video.load_video_resources(store_state.get_uid, "is_details_page");
+  // 不让浏览器记住上次的滚动位置
+  if ("scrollRestoration" in History) {
+    history.scrollRestoration = "manual";
+  }
+  // 移除相关事件监听
+  off_listeners();
+  // 绑定相关事件监听
+  on_listeners();
+  // 图标出错与mid映射，初始化为空
+  store.dispatch({ type: 'matchReducer/set_img_error_map_mid', payload: {} })
+  // window.vue.scroll_list_wrapper_by = use_router_scroll().scroll_list_wrapper_by
+  // 去除参数
+  if (!location.search.includes("keep_url")) {
+    history.replaceState(null, "", `${location.pathname}${location.hash}`);
+  }
+  // set_hide_skeleton_screen(true)
 };
+
 /**
- *@description 处理盘口设置
- *@return {Undefined} undefined
+ * @description 元数据请求回来 初始化赛事加载
  */
-const Handicap_handle = item => {
-  const status = item.switchValue === "rightVal" ? "HK" : "EU";
-  UserCtr.set_cur_odds(status);
-};
+const init_match_callback = () => {
+  if (route.name !== 'matchList') return
+  MatchMeta.set_origin_match_data()
+}
+
 /**
- *@description 处理字号大小
- *@return {Undefined} undefined
+ * @description 综合菜单切换页面卡顿效果
  */
-const size_handle = item => {
-  console.log("item", item);
+const handle_menu_change = () => {
+  animation.value = true
+  let timer = setTimeout(() => {
+    animation.value = false
+    clearTimeout(timer)
+    timer = null
+  }, 500)
+}
+
+
+const destroy_handle = () => {
+  // websocket_store.sendSocketCloseCmd();
+  matchCtr.value.init();
+  store.dispatch({ type: 'topMenuReducer/set_last_time_sub_menu_type', payload: '' })
+  off_listeners();
 };
-/**
- *@description 处理主题风格
- *@return {Undefined} undefined
- */
-const theme_handle = item => {
-  const status = item.switchValue === "rightVal" ? "theme-1" : "theme-2";
-  UserCtr.set_theme(status);
-  // 切换主题色
-  useMittEmit(MITT_TYPES.EMIT_THE_THEME_CHANGE)
+
+const unsubscribe = store.subscribe(() => {
+  update_state();
+});
+const update_state = () => {
+  const new_state = store.getState();
+  show_favorite_list.value = new_state.show_favorite_list;
+  get_is_show_menu.value = new_state.get_is_show_menu;
+  get_preload_animation_url.value = new_state.get_preload_animation_url;
 };
-/**
- *@description 处理每日活动
- *@return {Undefined} undefined
- */
-const activity_handle = item => {
-  const status = item.switchValue === "rightVal" ? false : true;
-  UserCtr.set_daily_activities(status);
+
+// 绑定相关事件监听
+const on_listeners = () => {
+  emitters.value = {
+    emitter_1: useMittOn(MITT_TYPES.EMIT_MENU_CHANGE_FOOTER_CMD, lodash.debounce((v) => {
+      MatchMeta.footer_event(v)
+    }, 500)).off,
+    emitter_2: useMittOn(MITT_TYPES.EMIT_MAIN_MENU_CHANGE, (v)=>MatchPage.main_menu_change(v)).off,
+    emitter_7: useMittOn(MITT_TYPES.EMIT_MATCH_LIST_SCROLLING, (v)=> MatchListCard.match_list_scroll_handle(v)).off,
+    // emitter_11: useMittOn(MITT_TYPES.EMIT_UPDATE_CURRENT_LIST_METADATA, init_match_callback).off,
+    emitter_12: useMittOn(MITT_TYPES.EMIT_MENU_ANIMATION, handle_menu_change).off,
+  };
 };
+// 移除相关事件监听
+const off_listeners = () => {
+  Object.values(emitters.value).map((x) => x());
+};
+
+onDeactivated(() => {
+  destroy_handle();
+  MatchDataBaseH5.clear()
+});
+
+onUnmounted(() => {
+  message_fun&&message_fun()
+  destroy_handle();
+  unsubscribe();
+  MatchDataBaseH5.clear()
+});
+
 </script>
 <style scoped lang="scss">
-// 组件样式
-.setting-filter {
-  width: 100%;
-  max-width: unset !important;
-  /*  兼容性问题,高度的调整影响到安卓手机的软键盘弹出 */
-  max-height: calc(var(--vh, 1vh) * 100 - 80px) !important;
-  //   border-radius: 0.16rem 0.16rem 0 0;
-  position: absolute;
-  bottom: 0;
-  background: var(--q-gb-bg-c-23);
-  backdrop-filter: blur(5px);
-  z-index: 99;
-
-  .setting-top.setting-item {
-    border-bottom: 0.08rem solid var(--q-gb-bg-c-21);
-    padding: 0.14rem;
-    margin: 0;
-    height: 0.5rem;
-    background: var(--q-gb-bg-c-25);
-  }
-  .setting-list{
-    background: var(--q-gb-bg-c-25);
-  }
-
-  .setting-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 0.14rem;
-    padding: 0.14rem 0;
-    margin: 0 0.14rem;
-    // background: var(--q-gb-bg-c-25);
-    &.border {
-      border-bottom: 1px solid var(--q-gb-bd-c-6);
-    }
-
-    .title {
-      color: var(--q-gb-t-c-18);
-
-      span {
-        color: var(--q-gb-t-c-19);
-      }
-    }
-
-    .more {
-      color: var(--q-gb-t-c-19);
-    }
-    .disabled{
-      pointer-events: none;
-    }
-
-    .goto-website {
-      width: 1.04rem;
-      height: 0.28rem;
-      line-height: 0.28rem;
-      background-color: #f3faff;
-      border-radius: 0.18rem;
-      text-align: center;
-      //color: #7981a4;
-      color: var(--q-gb-t-c-11);
-      font-weight: 500;
-    }
-  }
-
-  .closed-btn {
-    display: flex;
-    padding: 0.13rem;
-    align-items: center;
-    justify-content: center;
-    border-top: 0.08rem solid var(--q-gb-bg-c-21);
-    background: var(--q-gb-bg-c-25);
-    color: var(--q-gb-t-c-18);
-    span {
-      font-size: 0.18rem;
-    }
-  }
-}
+  @import "./index.scss";
 </style>
