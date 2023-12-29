@@ -79,7 +79,7 @@
         </div>
         <!-- 卡片主内容 -->
         <!-- <q-slide-transition> -->
-        <div :class="['match-content', { 'collapsed': collapsed, 'border-button': !match.is_show_league }]" v-if="collapsed">
+        <div :class="['match-content', { 'collapsed': collapsed, 'border-raduis': is_show_border_raduis }]" v-if="collapsed">
           <div class="match-content-line" v-if="!match.is_show_league"></div>
           <!--标准版 赔率标题栏-->
           <div class="odd-title-wraper row " v-if="match.is_show_league" @click.stop :style="{width: collapsed ? '100%' : 0}">
@@ -492,16 +492,18 @@ export default {
     .match-content{
       width: 100%;
       padding: 0 10px;
-      border-top: 1px solid  var(--q-gb-bd-c-4);
+      // border-top: 1px solid  var(--q-gb-bd-c-4);
       background: var(--q-gb-bg-c-18);
       //border-radius: 0 0 8px 8px;
       border: 1px solid var(--q-gb-bd-c-15);
+      border-bottom-color: var(--q-gb-bg-c-18);
       &.collapsed{
         border-top: none;
         // border-radius: 0 0 0.08rem 0.08rem;
       }
-      &.border-button{
-        // border-radius: 0 0 0.08rem 0.08rem;
+      &.border-raduis{
+        border-bottom: 1px solid #fff;
+        border-radius: 0 0 0.08rem 0.08rem;
       }
     }
     > .match-indent{
@@ -1570,6 +1572,10 @@ export default {
       position: relative;
       top: 1px;
       font-size: 12px
+    }
+    .coming-soon{
+      position: relative;
+      top: 2px;
     }
   }
 
