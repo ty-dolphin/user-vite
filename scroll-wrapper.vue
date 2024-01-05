@@ -39,7 +39,7 @@
       </div>
     </div>
     <!-- 回到顶部按钮组件 -->
-    <ScrollTop :list_scroll_top="scroll_top" :is_show_top_icon="is_show_top_icon" @back-top="goto_top" />
+    <ScrollTop :list_scroll_top="scroll_top" to_com=".refresh-container" @back-top="goto_top" />
   </div>
 </template>
 
@@ -83,7 +83,6 @@ const max_height = ref(false)
 const scroll_timer = ref(0)
 const emitters = ref({})
 const container = ref(null)
-const is_show_top_icon = ref(true)
 const show_skeleton_screen = ref(false)
 // const scroll_height = ref(0)
 
@@ -94,7 +93,6 @@ onMounted(() => {
   emitters.value = {
     emitter: useMittOn(MITT_TYPES.EMIT_MAIN_LIST_MAX_HEIGHT, update_max_height).off,
     emitter_1: useMittOn(MITT_TYPES.EMIT_GOT_TO_TOP, goto_top).off,
-    emitter_3: useMittOn(MITT_TYPES.EMIT_CHANGE_SETTING_SHOW, (v) => is_show_top_icon.value = !v?.open ).off,
     emitter_2: useMittOn(MITT_TYPES.EMIT_SHOW_SKELETON_DIAGRAM, (val) => {
       show_skeleton_screen.value = val
       show_skeleton_screen.value && reset_show_skeleton_state()
